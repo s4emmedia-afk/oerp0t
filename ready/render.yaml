@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: orbit
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - {key: SESSION_SECRET, generateValue: true}
+      - {key: BASE_URL, sync: false}
+      - {key: CLIENT_ID, sync: false}
+      - {key: CLIENT_SECRET, sync: false}
+      - {key: BOT_TOKEN, sync: false}
+      - {key: GUILD_ID, sync: false}
+      - {key: ADMIN_ROLE_ID, sync: false}
+      - {key: TICKET_CATEGORY_ID, sync: false}

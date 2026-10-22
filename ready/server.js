@@ -1,0 +1,28 @@
+require('dotenv').config();
+const express=require('express'),crypto=require('crypto');const db=require('./data'),bot=require('./bot');
+const E=process.env,B=E.BASE_URL,app=express();app.use(express.json());
+const sg=s=>crypto.createHmac('sha256',E.SESSION_SECRET).update(s).digest('base64url');
+const mk=o=>{const p=Buffer.from(JSON.stringify(o)).toString('base64url');return p+'.'+sg(p)};
+const rd=t=>{try{const[p,s]=t.split('.');if(sg(p)===s){const o=JSON.parse(Buffer.from(p,'base64url'));if(o.exp>Date.now())return o}}catch{}};
+app.use((q,r,n)=>{q.user=rd(((q.headers.cookie||'').split('; ').find(c=>c.startsWith('orbit='))||'').slice(6));n()});
+const need=(q,r,n)=>q.user?n():r.status(401).json({error:'login'}),adm=(q,r,n)=>q.user?.admin?n():r.status(403).json({error:'admin'});
+const sec=B&&B.startsWith('https')?'; Secure':'';
+app.get('/auth/login',(q,r)=>r.redirect(`https://discord.com/api/oauth2/authorize?client_id=${E.CLIENT_ID}&redirect_uri=${encodeURIComponent(B+'/auth/callback')}&response_type=code&scope=identify`));
+app.get('/auth/callback',async(q,r)=>{try{
+ const t=await(await fetch('https://discord.com/api/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:E.CLIENT_ID,client_secret:E.CLIENT_SECRET,grant_type:'authorization_code',code:q.query.code,redirect_uri:B+'/auth/callback'})})).json();
+ const u=await(await fetch('https://discord.com/api/users/@me',{headers:{Authorization:'Bearer '+t.access_token}})).json();
+ const tok=mk({id:u.id,name:u.global_name||u.username,avatar:u.avatar?`https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png`:'',admin:await bot.isAdmin(u.id),exp:Date.now()+6048e5});
+ r.setHeader('Set-Cookie',`orbit=${tok}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax${sec}`);r.redirect('/')}catch(e){r.status(500).send('فشل تسجيل الدخول')}});
+app.get('/auth/logout',(q,r)=>{r.setHeader('Set-Cookie','orbit=; Path=/; Max-Age=0');r.redirect('/')});
+const D=db.d,sv=db.save,strip=({messages,...t})=>t;
+app.get('/api/me',need,(q,r)=>r.json(q.user));
+app.get('/api/offers',need,(q,r)=>r.json(D.offers));
+app.get('/api/tickets',need,(q,r)=>r.json(D.tickets.filter(t=>t.userId===q.user.id).map(strip).reverse()));
+app.get('/api/tickets/:id',need,(q,r)=>{const t=D.tickets.find(t=>t.id==q.params.id);if(!t||(t.userId!==q.user.id&&!q.user.admin))return r.sendStatus(404);r.json(t)});
+app.get('/api/admin/tickets',need,adm,(q,r)=>r.json(D.tickets.map(strip).reverse()));
+app.post('/api/admin/offers',need,adm,(q,r)=>{const{title,desc,price,code}=q.body;D.offers.unshift({id:Date.now(),title,desc,price,code});sv();r.json({ok:1})});
+app.delete('/api/admin/offers/:id',need,adm,(q,r)=>{D.offers=D.offers.filter(o=>o.id!=q.params.id);sv();r.json({ok:1})});
+app.get('/api/admin/buttons',need,adm,(q,r)=>r.json(D.buttons));
+app.post('/api/admin/buttons',need,adm,(q,r)=>{D.buttons=q.body.slice(0,25);sv();r.json({ok:1})});
+app.post('/api/admin/panel',need,adm,async(q,r)=>{try{await bot.sendPanel(q.body.channelId,q.body.title,q.body.desc);r.json({ok:1})}catch(e){r.status(400).json({error:e.message})}});
+app.use(express.static('public'));app.listen(E.PORT||3000,()=>console.log('Orbit on',E.PORT||3000));
